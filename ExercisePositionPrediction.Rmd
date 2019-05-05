@@ -1,0 +1,92 @@
+---
+title: "PredictionModel"
+author: "Asif Khan"
+date: "3/20/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: hea (see the section on the Weight Lifting Exercise Dataset).
+
+
+```{r GetData, echo=FALSE}
+library(caret)
+library(dplyr)
+library(stringr)
+library(randomForest)
+set.seed(333)
+
+training <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+testing <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+print(paste('training data set size:', nrow(training), 'observations for', ncol(training), 'variables' ))
+print(paste('testing data set size:', nrow(testing), 'observations for', ncol(testing), 'variables' ))
+
+```
+Too many observations in the data, so we will make subset of observation with base data and skip statistical summary observations.
+
+## Data Cleansing
+
+```{r EDA1, echo=FALSE}
+training_subset <- training
+regex_list <- c('.*kurtosis.*', '.*max.*', '.*skewness.*', '.*min.*', '.*var.*', '.*avg.*', '.*stddev.*', '.*total.*')
+for (regexp1 in regex_list) {
+  print(regexp1)
+  training_subset <- training_subset[,str_detect(colnames(training_subset), regexp1, negate = TRUE)]
+}
+testing_subset <- testing
+for (regexp1 in regex_list) {
+  print(regexp1)
+  testing_subset <- testing_subset[,str_detect(colnames(testing_subset), regexp1, negate = TRUE)]
+}
+
+```
+Further clean up of data by removing variables with more then 95% NA values, near zero variance.
+
+``` {r EDA2, echo = FALSE}
+
+inTrain <- createDataPartition(training_subset$classe, p=0.7, list=FALSE)
+training_subset2 <- training_subset[inTrain,]
+Validation_Subset <- training_subset[-inTrain,]
+
+dim(training_subset2)
+dim(Validation_Subset)
+
+near_zero_vars <- nearZeroVar(training_subset2)
+training_subset2 <- training_subset2[,-near_zero_vars]
+Validation_Subset <- Validation_Subset[,-near_zero_vars]
+
+# discard NA
+NAs <- apply(training_subset2, 2, function(x) {
+    sum(is.na(x))
+})
+
+training_subset2 <- training_subset2[, which(NAs == 0)]
+
+NAs <- apply(Validation_Subset, 2, function(x) {
+    sum(is.na(x))
+})
+
+Validation_Subset <- Validation_Subset[, which(NAs == 0)]
+
+dim(training_subset2)
+dim(Validation_Subset)
+
+```
+Dataset is now ready for model training and validation, We will use the random forest classification model with 3 fold cross validation. The model shows 100% accuracy when mtry - 39 and that is the parameter used for the final model.
+``` {r ModelTrain, echo = FALSE}
+train_control <- trainControl(method="cv", number=3)
+fit_rf <- train(classe ~ ., method = "rf", data = training_subset2, trControl = train_control)
+fit_rf
+```
+Checking for out-of-sample error by using the model tp predict on the validation subset which was created by partitioning the training dataset. The results show an out of sample error of 1.0004%.
+``` {r ModelValidation, echo=FALSE}
+
+predValid <- predict(fit_rf, Validation_Subset)
+confusionMatrix(predValid, Validation_Subset$classe)
+```
+
